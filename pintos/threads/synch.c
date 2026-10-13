@@ -98,6 +98,16 @@ sema_try_down (struct semaphore *sema) {
 	return success;
 }
 
+static bool
+priority_less (const struct list_elem *a, const struct list_elem *b,
+            void *aux UNUSED) 
+{
+  const struct thread *ta = list_entry (a, struct thread, elem);
+  const struct thread *tb = list_entry (b, struct thread, elem);
+  
+  return ta->priority < tb->priority;
+}
+
 /* Up or "V" operation on a semaphore.  Increments SEMA's value
    and wakes up one thread of those waiting for SEMA, if any.
 
@@ -108,12 +118,18 @@ sema_up (struct semaphore *sema) {
 
 	ASSERT (sema != NULL);
 
+	/* waiters 중 가장 우선순위가 높은 elem을 선택한다.
+	   선택한 elem을 waiters에서 제거하고, 해당 스레드를 unblock한다. */
 	old_level = intr_disable ();
-	if (!list_empty (&sema->waiters))
-		thread_unblock (list_entry (list_pop_front (&sema->waiters),
-					struct thread, elem));
+	if (!list_empty (&sema->waiters)) {
+		struct list_elem *max_elem = list_max (&sema->waiters, priority_less, NULL);
+		list_remove(max_elem);
+		thread_unblock (list_entry (max_elem, struct thread, elem));
+	}
+		
 	sema->value++;
 	intr_set_level (old_level);
+	thread_yield();
 }
 
 static void sema_test_helper (void *sema_);
