@@ -98,6 +98,8 @@ sema_try_down (struct semaphore *sema) {
 	return success;
 }
 
+/* A의 우선순위가 B보다 작으면 true, 같거나 크면 false를 반환한다. 
+   list_max()에서 우선순위가 가장 높은 스레드를 찾는 데 사용한다. */
 static bool
 priority_less (const struct list_elem *a, const struct list_elem *b,
             void *aux UNUSED) 
@@ -129,7 +131,13 @@ sema_up (struct semaphore *sema) {
 		
 	sema->value++;
 	intr_set_level (old_level);
-	thread_yield();
+
+	/* sema_up은 intr_context에서도 호출될 수 있기 때문에 조건에 따라 호출 함수 분리 */
+	if (intr_context ()) {
+		intr_yield_on_return();
+	} else {
+		thread_yield();
+	}
 }
 
 static void sema_test_helper (void *sema_);

@@ -186,6 +186,7 @@ thread_create (const char *name, int priority,
 		thread_func *function, void *aux) {
 	struct thread *t;
 	tid_t tid;
+	enum intr_level old_level;
 
 	ASSERT (function != NULL);
 
@@ -212,12 +213,14 @@ thread_create (const char *name, int priority,
 	/* Add to run queue. */
 	thread_unblock (t);
 
-	/* 스레드 생성 시 사용한 우선 순위가 실행 중인 스레드보다 높다면 선점 
-	   t->priority를 사용하면 인터럽트에 의해 t의 우선순위가 변경될 수 있기 때문에
-		 매개변수 priority를 그대로 사용함 */
-	if (priority > thread_current()->priority) {
+	/* 생성한 스레드의 우선순위가 현재 스레드보다 높다면 양보한다. 
+	   thread_unblock() 이후 선점이 일어나면 t의 우선순위가 
+		 바뀌거나 t가 종료될 수 있으므로, intr_disable을 호출한다. */
+	old_level = intr_disable();
+	if (t->priority > thread_current()->priority) {
 		thread_yield();
 	}
+	intr_set_level(old_level);
 
 	return tid;
 }
