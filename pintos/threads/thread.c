@@ -502,6 +502,10 @@ init_thread (struct thread *t, const char *name, int priority) {
 	strlcpy (t->name, name, sizeof t->name);
 	t->tf.rsp = (uint64_t) t + PGSIZE - sizeof (void *);
 	t->priority = priority;
+	/* 기부 관련 필드 초기화 */
+	t->base_priority = priority;
+	list_init(&t->donations);
+	t->waiting_lock = NULL;
 	t->magic = THREAD_MAGIC;
 }
 

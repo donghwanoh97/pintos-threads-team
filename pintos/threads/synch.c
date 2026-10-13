@@ -211,9 +211,25 @@ lock_acquire (struct lock *lock) {
 	ASSERT (lock != NULL);
 	ASSERT (!intr_context ());
 	ASSERT (!lock_held_by_current_thread (lock));
+	
+	struct thread *curr = thread_current();
+	struct thread *holder = lock->holder;
+
+	/* 락이 없어 sema_down 내부 waiters에 삽입되기 전 동작하는 코드
+	   holder의 우선순위보다 실행중인 스레드의 우선순위가 더 크면 덮어씌운다.
+		 holder의 donations에 실행중인 스레드의 donation_elem을 등록한다. */
+	if (lock->semaphore.value == 0 && holder != NULL) {
+		if (curr->priority > holder->priority) {
+			holder->priority = curr->priority;
+			list_push_back(&holder->donations, &curr->donation_elem);
+
+		/* 실행 중인 스레드의 waiting_lock에 현재 가지고 있는 락을 등록 */
+		curr->waiting_lock = lock;
+		}
+	}
 
 	sema_down (&lock->semaphore);
-	lock->holder = thread_current ();
+	lock->holder = curr;
 }
 
 /* Tries to acquires LOCK and returns true if successful or false
@@ -245,6 +261,26 @@ void
 lock_release (struct lock *lock) {
 	ASSERT (lock != NULL);
 	ASSERT (lock_held_by_current_thread (lock));
+
+	struct thread *curr = thread_current ();
+	struct list_elem *e;
+	
+	/* 현재 스레드의 donations 리스트를 순회하며 elem이 나타내는 waiting_lock이
+	   현재 스레드가 해제하는 락과 같은 elem 제거 */
+	for (e = list_begin (&curr->donations); e != list_end(&curr->donations); e = list_next(e)) {
+		struct thread *t = list_entry (e, struct thread, donation_elem);
+		if (t->waiting_lock == lock) {
+			list_remove(e);
+		}
+	}
+
+	if (!list_empty (&curr->donations)) {
+		struct list_elem *max_elem = list_max (&curr->donations, priority_less, NULL);
+		struct thread *max_t = list_entry (max_elem, struct thread, donation_elem);
+		curr->priority = max_t->priority;
+	} else {
+		curr->priority = curr->base_priority;
+	}
 
 	lock->holder = NULL;
 	sema_up (&lock->semaphore);
