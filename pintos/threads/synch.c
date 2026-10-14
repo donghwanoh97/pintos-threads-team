@@ -372,6 +372,20 @@ cond_wait (struct condition *cond, struct lock *lock) {
 	lock_acquire (lock);
 }
 
+/* cond->waiters의 semaphore_elem A, B를 비교한다.
+   각 세마포어에서 기다리는 스레드의 우선순위가 A < B이면 true를 반환한다.
+   cond_signal()에서 list_max()로 우선순위가 가장 높은 대기자를 찾는 데 사용한다. */
+static bool
+sema_priority_less (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED) {
+  struct semaphore_elem *sa = list_entry(a, struct semaphore_elem, elem);
+  struct semaphore_elem *sb = list_entry(b, struct semaphore_elem, elem);
+
+  struct list_elem *ta = list_front(&sa->semaphore.waiters);
+  struct list_elem *tb = list_front(&sb->semaphore.waiters);
+
+  return priority_less (ta, tb, NULL);
+}
+
 /* If any threads are waiting on COND (protected by LOCK), then
    this function signals one of them to wake up from its wait.
    LOCK must be held before calling this function.
@@ -386,9 +400,13 @@ cond_signal (struct condition *cond, struct lock *lock UNUSED) {
 	ASSERT (!intr_context ());
 	ASSERT (lock_held_by_current_thread (lock));
 
-	if (!list_empty (&cond->waiters))
-		sema_up (&list_entry (list_pop_front (&cond->waiters),
-					struct semaphore_elem, elem)->semaphore);
+  /* cond->waiters에서 우선순위가 가장 높은 스레드가 기다리는 semaphore_elem을 고른다.
+	   리스트에서 제거한 뒤, 그 semaphore에 sema_up을 호출해 해당 스레드를 깨운다. */
+	if (!list_empty (&cond->waiters)) {
+    struct list_elem *e = list_max(&cond->waiters, sema_priority_less, NULL);
+    list_remove(e);
+    sema_up (&list_entry (e, struct semaphore_elem, elem)->semaphore);
+  }
 }
 
 /* Wakes up all threads, if any, waiting on COND (protected by
