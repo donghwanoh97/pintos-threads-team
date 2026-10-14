@@ -110,17 +110,6 @@ priority_less (const struct list_elem *a, const struct list_elem *b,
   return ta->priority < tb->priority;
 }
 
-/* donations에서 우선순위가 가장 높은 elem 찾기 위한 함수 */
-static bool
-donation_priority_less (const struct list_elem *a, const struct list_elem *b,
-            void *aux UNUSED) 
-{
-  const struct thread *ta = list_entry (a, struct thread, donation_elem);
-  const struct thread *tb = list_entry (b, struct thread, donation_elem);
-  
-  return ta->priority < tb->priority;
-}
-
 /* Up or "V" operation on a semaphore.  Increments SEMA's value
    and wakes up one thread of those waiting for SEMA, if any.
 
@@ -240,21 +229,23 @@ lock_acquire (struct lock *lock) {
 		while (h != NULL) {
 			if (curr->priority > h->priority) {
 				h->priority = curr->priority;
-			}
-
-			if(h->waiting_lock == NULL) {
+			} else {
 				break;
 			}
+		
+			if (h->waiting_lock == NULL) {
+				break;
+			}		
 
 			h = h->waiting_lock->holder;
 		}
 	}
 
-	intr_set_level (old_level);
-
 	sema_down (&lock->semaphore);
+	
 	curr->waiting_lock = NULL; // lock을 획득했으니 초기화 
 	lock->holder = curr;
+	intr_set_level (old_level);
 }
 
 /* Tries to acquires LOCK and returns true if successful or false
@@ -294,26 +285,28 @@ lock_release (struct lock *lock) {
 
 	/* donations를 순회하며 elem이 나타내는 waiting_lock이
 	   현재 스레드가 release하는 락과 같은 elem 제거 */
-	for (e = list_begin (&curr->donations); e != list_end(&curr->donations); e = list_next(e)) {
+	while (e != list_end (&curr->donations)) {
 		struct thread *t = list_entry (e, struct thread, donation_elem);
-		if (t->waiting_lock == lock) {
-			list_remove(e);
-		}
+		if (t->waiting_lock == lock)
+			e = list_remove (e);
+		else
+			e = list_next (e);
 	}
+
+	/* 이후 max_t와 base_priority의 비교를 위하여 먼저 값을 대입 해 줌 */
+	curr->priority = curr->base_priority;
 
 	/* donations 업데이트 후 나보다 더 높은 우선순위를 가진 기부자가 있을 때 갱신 */
 	if (!list_empty (&curr->donations)) {
 		struct list_elem *max_elem = list_max (&curr->donations, donation_priority_less, NULL);
 		struct thread *max_t = list_entry (max_elem, struct thread, donation_elem);
+		if (max_t->priority > curr->priority) 
 		curr->priority = max_t->priority;
-	} else {
-		curr->priority = curr->base_priority;
 	}
-
-	intr_set_level (old_level);
 
 	lock->holder = NULL;
 	sema_up (&lock->semaphore);
+	intr_set_level (old_level);
 }
 
 /* Returns true if the current thread holds LOCK, false

@@ -392,7 +392,7 @@ thread_yield (void) {
 }
 
 /* donations에서 우선순위가 가장 높은 elem 찾기 위한 함수 */
-static bool
+bool
 donation_priority_less (const struct list_elem *a, const struct list_elem *b,
             void *aux UNUSED) 
 {
