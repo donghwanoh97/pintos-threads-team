@@ -226,20 +226,34 @@ lock_acquire (struct lock *lock) {
 	struct thread *curr = thread_current();
 	struct thread *holder = lock->holder;
 
-	/* 락이 없어 sema_down 내부 waiters에 삽입되기 전 동작하는 코드
-	   holder의 우선순위보다 실행중인 스레드의 우선순위가 더 크면 덮어씌운다.
-		 holder의 donations에 실행중인 스레드의 donation_elem을 등록한다. */
-	if (lock->semaphore.value == 0 && holder != NULL) {
-		if (curr->priority > holder->priority) {
-			holder->priority = curr->priority;
-			list_push_back(&holder->donations, &curr->donation_elem);
+	enum intr_level old_level = intr_disable ();
 
-		/* 실행 중인 스레드의 waiting_lock에 현재 가지고 있는 락을 등록 */
+
+	/* 요청하는 락이 사용 중일 경우, sema_down 이전에 우선순위를 기부하는 로직 */
+	if (lock->semaphore.value == 0 && holder != NULL) {
 		curr->waiting_lock = lock;
+		list_push_back(&holder->donations, &curr->donation_elem); // lock_release시 우선순위가 가장 큰 값을 찾기 위해
+	
+		/* 나의 우선순위보다 holder의 우선순위가 낮다면 갱신한다.
+		   반복문에서 holder를 타고 순회하며 우선순위를 갱신한다. */
+		struct thread *h = holder;
+		while (h != NULL) {
+			if (curr->priority > h->priority) {
+				h->priority = curr->priority;
+			}
+
+			if(h->waiting_lock == NULL) {
+				break;
+			}
+
+			h = h->waiting_lock->holder;
 		}
 	}
 
+	intr_set_level (old_level);
+
 	sema_down (&lock->semaphore);
+	curr->waiting_lock = NULL; // lock을 획득했으니 초기화 
 	lock->holder = curr;
 }
 
@@ -275,9 +289,11 @@ lock_release (struct lock *lock) {
 
 	struct thread *curr = thread_current ();
 	struct list_elem *e;
-	
-	/* 현재 스레드의 donations 리스트를 순회하며 elem이 나타내는 waiting_lock이
-	   현재 스레드가 해제하는 락과 같은 elem 제거 */
+
+	enum intr_level old_level = intr_disable ();
+
+	/* donations를 순회하며 elem이 나타내는 waiting_lock이
+	   현재 스레드가 release하는 락과 같은 elem 제거 */
 	for (e = list_begin (&curr->donations); e != list_end(&curr->donations); e = list_next(e)) {
 		struct thread *t = list_entry (e, struct thread, donation_elem);
 		if (t->waiting_lock == lock) {
@@ -285,6 +301,7 @@ lock_release (struct lock *lock) {
 		}
 	}
 
+	/* donations 업데이트 후 나보다 더 높은 우선순위를 가진 기부자가 있을 때 갱신 */
 	if (!list_empty (&curr->donations)) {
 		struct list_elem *max_elem = list_max (&curr->donations, donation_priority_less, NULL);
 		struct thread *max_t = list_entry (max_elem, struct thread, donation_elem);
@@ -292,6 +309,8 @@ lock_release (struct lock *lock) {
 	} else {
 		curr->priority = curr->base_priority;
 	}
+
+	intr_set_level (old_level);
 
 	lock->holder = NULL;
 	sema_up (&lock->semaphore);
