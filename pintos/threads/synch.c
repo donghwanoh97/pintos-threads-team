@@ -110,6 +110,17 @@ priority_less (const struct list_elem *a, const struct list_elem *b,
   return ta->priority < tb->priority;
 }
 
+/* donations에서 우선순위가 가장 높은 elem 찾기 위한 함수 */
+static bool
+donation_priority_less (const struct list_elem *a, const struct list_elem *b,
+            void *aux UNUSED) 
+{
+  const struct thread *ta = list_entry (a, struct thread, donation_elem);
+  const struct thread *tb = list_entry (b, struct thread, donation_elem);
+  
+  return ta->priority < tb->priority;
+}
+
 /* Up or "V" operation on a semaphore.  Increments SEMA's value
    and wakes up one thread of those waiting for SEMA, if any.
 
@@ -275,7 +286,7 @@ lock_release (struct lock *lock) {
 	}
 
 	if (!list_empty (&curr->donations)) {
-		struct list_elem *max_elem = list_max (&curr->donations, priority_less, NULL);
+		struct list_elem *max_elem = list_max (&curr->donations, donation_priority_less, NULL);
 		struct thread *max_t = list_entry (max_elem, struct thread, donation_elem);
 		curr->priority = max_t->priority;
 	} else {

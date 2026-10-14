@@ -391,11 +391,34 @@ thread_yield (void) {
 	intr_set_level (old_level);
 }
 
+/* donations에서 우선순위가 가장 높은 elem 찾기 위한 함수 */
+static bool
+donation_priority_less (const struct list_elem *a, const struct list_elem *b,
+            void *aux UNUSED) 
+{
+  const struct thread *ta = list_entry (a, struct thread, donation_elem);
+  const struct thread *tb = list_entry (b, struct thread, donation_elem);
+  
+  return ta->priority < tb->priority;
+}
+
 /* Sets the current thread's priority to NEW_PRIORITY. */
 void
 thread_set_priority (int new_priority) {
 	struct thread *curr = thread_current();
+	curr->base_priority = new_priority;
 	curr->priority = new_priority;
+
+	/* 기부 받는 중이면 기부값이 더 클 때 유지 */
+	if (!list_empty (&curr->donations)) {
+		struct thread *max_t = list_entry (
+			list_max (&curr->donations, donation_priority_less, NULL),
+			struct thread, donation_elem);
+
+		if (max_t->priority > curr->priority) {
+			curr->priority = max_t->priority;
+		}
+	}
 
 	/* ready list에서 우선순위가 가장 높은 스레드와 비교했을 때
 	   현재 스레드의 우선순위가 더 낮다면 양보*/
