@@ -213,10 +213,9 @@ lock_acquire (struct lock *lock) {
 	ASSERT (!lock_held_by_current_thread (lock));
 	
 	struct thread *curr = thread_current();
-	struct thread *holder = lock->holder;
 
 	enum intr_level old_level = intr_disable ();
-
+	struct thread *holder = lock->holder;
 
 	/* 요청하는 락이 사용 중일 경우, sema_down 이전에 우선순위를 기부하는 로직 */
 	if (lock->semaphore.value == 0 && holder != NULL) {
@@ -285,6 +284,7 @@ lock_release (struct lock *lock) {
 
 	/* donations를 순회하며 elem이 나타내는 waiting_lock이
 	   현재 스레드가 release하는 락과 같은 elem 제거 */
+	e = list_begin(&curr->donations);
 	while (e != list_end (&curr->donations)) {
 		struct thread *t = list_entry (e, struct thread, donation_elem);
 		if (t->waiting_lock == lock)
@@ -300,8 +300,9 @@ lock_release (struct lock *lock) {
 	if (!list_empty (&curr->donations)) {
 		struct list_elem *max_elem = list_max (&curr->donations, donation_priority_less, NULL);
 		struct thread *max_t = list_entry (max_elem, struct thread, donation_elem);
-		if (max_t->priority > curr->priority) 
-		curr->priority = max_t->priority;
+		if (max_t->priority > curr->priority) {
+			curr->priority = max_t->priority;
+		}
 	}
 
 	lock->holder = NULL;
