@@ -324,6 +324,7 @@ lock_held_by_current_thread (const struct lock *lock) {
 struct semaphore_elem {
 	struct list_elem elem;              /* List element. */
 	struct semaphore semaphore;         /* This semaphore. */
+  struct thread *thread;
 };
 
 /* Initializes condition variable COND.  A condition variable
@@ -366,24 +367,24 @@ cond_wait (struct condition *cond, struct lock *lock) {
 	ASSERT (lock_held_by_current_thread (lock));
 
 	sema_init (&waiter.semaphore, 0);
+
+  waiter.thread = thread_current ();
 	list_push_back (&cond->waiters, &waiter.elem);
+
 	lock_release (lock);
 	sema_down (&waiter.semaphore);
 	lock_acquire (lock);
 }
 
 /* cond->waiters의 semaphore_elem A, B를 비교한다.
-   각 세마포어에서 기다리는 스레드의 우선순위가 A < B이면 true를 반환한다.
+   cond_wait()에서 기록해 둔 대기 스레드의 우선순위가 A < B이면 true를 반환한다.
    cond_signal()에서 list_max()로 우선순위가 가장 높은 대기자를 찾는 데 사용한다. */
 static bool
 sema_priority_less (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED) {
   struct semaphore_elem *sa = list_entry(a, struct semaphore_elem, elem);
   struct semaphore_elem *sb = list_entry(b, struct semaphore_elem, elem);
 
-  struct list_elem *ta = list_front(&sa->semaphore.waiters);
-  struct list_elem *tb = list_front(&sb->semaphore.waiters);
-
-  return priority_less (ta, tb, NULL);
+  return sa->thread->priority < sb->thread->priority;
 }
 
 /* If any threads are waiting on COND (protected by LOCK), then
